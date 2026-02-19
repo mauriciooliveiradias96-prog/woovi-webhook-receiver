@@ -1,0 +1,12 @@
+{
+  "name": "woovi-webhook-receiver",
+  "version": "1.0.0",
+  "description": "Receptor de webhooks da Woovi com persistência",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
