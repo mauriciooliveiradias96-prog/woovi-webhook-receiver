@@ -40,7 +40,8 @@ app.get('/', (req, res) => {
         <h1>🚀 Webhook Receiver - Online</h1>
         <p>Webhooks armazenados: <strong>${webhooks.length}</strong></p>
         <p><a href="/status">Ver status</a></p>
-        <p><a href="/get-webhooks">Buscar webhooks (limpa a lista)</a></p>
+        <p><a href="/consultar-webhooks">Consultar webhooks (NÃO limpa)</a></p>
+        <p><a href="/get-webhooks">⚠️ BUSCAR E LIMPAR (usar apenas após processar)</a></p>
     `);
 });
 
@@ -58,7 +59,7 @@ app.post('/webhook', (req, res) => {
     // Adicionar à lista
     webhooks.push(webhookData);
     
-    // Manter apenas os últimos 200 (para não ocupar muito espaço)
+    // Manter apenas os últimos 200
     if (webhooks.length > 200) {
         webhooks = webhooks.slice(-200);
     }
@@ -73,30 +74,63 @@ app.post('/webhook', (req, res) => {
     console.log(`   Total na fila: ${webhooks.length}`);
     console.log(`   Persistido: ${salvou ? 'sim' : 'não'}`);
     
-    // Responder 200 (obrigatório)
+    // Responder 200
     res.status(200).send('OK');
 });
 
-// Rota para seu site buscar os webhooks (GET)
-app.get('/get-webhooks', (req, res) => {
-    const quantidade = webhooks.length;
+// 🔥 NOVA ROTA: APENAS CONSULTAR (NÃO LIMPA)
+app.get('/consultar-webhooks', (req, res) => {
+    console.log(`📋 Consulta: ${webhooks.length} webhooks na fila (não foram removidos)`);
     
-    // Criar cópia e limpar a lista
-    const webhooksParaEnviar = [...webhooks];
-    webhooks = [];
+    // Retornar sem limpar
+    res.json(webhooks);
+});
+
+// 🔥 NOVA ROTA: REMOVER APÓS PROCESSAMENTO
+app.post('/confirmar-processamento', (req, res) => {
+    const indices = req.body.indices || [];
+    const quantidadeAnterior = webhooks.length;
     
-    // Salvar lista vazia no arquivo
+    if (indices.length > 0) {
+        // Remover apenas os índices específicos que foram processados
+        webhooks = webhooks.filter((_, index) => !indices.includes(index));
+        console.log(`🗑️ Removidos ${indices.length} webhooks processados`);
+    } else {
+        // Se não especificar índices, não remove nada (seguro)
+        console.log('⚠️ Nenhum índice especificado, mantendo todos');
+    }
+    
     salvarWebhooks();
     
-    console.log(`📤 Enviados ${quantidade} webhooks e limpada a fila`);
+    res.json({
+        status: 'ok',
+        removidos: indices.length,
+        restantes: webhooks.length
+    });
+});
+
+// 🔥 ROTA MODIFICADA: GET WEBHOOKS (agora só remove se confirmado)
+app.get('/get-webhooks', (req, res) => {
+    const confirmar = req.query.confirmar === 'true';
+    const quantidade = webhooks.length;
     
-    // Retornar os webhooks
+    // Criar cópia
+    const webhooksParaEnviar = [...webhooks];
+    
+    if (confirmar) {
+        // SÓ remove se confirmar=true
+        webhooks = [];
+        salvarWebhooks();
+        console.log(`📤 Enviados E REMOVIDOS ${quantidade} webhooks (confirmado)`);
+    } else {
+        console.log(`📤 Enviados ${quantidade} webhooks (NÃO removidos - use ?confirmar=true para remover)`);
+    }
+    
     res.json(webhooksParaEnviar);
 });
 
-// Rota para ver status (útil para debug)
+// Rota para ver status
 app.get('/status', (req, res) => {
-    // Extrair informações resumidas dos webhooks
     const resumo = webhooks.map(w => ({
         timestamp: w.timestamp,
         event: w.body.event,
@@ -107,13 +141,13 @@ app.get('/status', (req, res) => {
     res.json({
         status: 'online',
         webhooks_armazenados: webhooks.length,
-        webhooks_resumo: resumo.slice(-10), // últimos 10
+        webhooks_resumo: resumo.slice(-10),
         arquivo_existe: fs.existsSync(WEBHOOKS_FILE),
         arquivo_tamanho: fs.existsSync(WEBHOOKS_FILE) ? fs.statSync(WEBHOOKS_FILE).size : 0
     });
 });
 
-// Rota para testar (simula um webhook)
+// Rota para testar
 app.post('/testar', (req, res) => {
     const webhookTeste = {
         event: "OPENPIX:CHARGE_COMPLETED",
@@ -124,10 +158,6 @@ app.post('/testar', (req, res) => {
         }
     };
     
-    // Processar como se fosse um webhook real
-    req.body = webhookTeste;
-    
-    // Chamar a mesma lógica
     const timestamp = new Date().toISOString();
     
     const webhookData = {
@@ -157,9 +187,12 @@ app.listen(PORT, () => {
     console.log(`📁 Arquivo de webhooks: ${WEBHOOKS_FILE}`);
     console.log(`📊 Webhooks carregados: ${webhooks.length}`);
     console.log(`\nRotas disponíveis:`);
-    console.log(`   GET  /            - Página inicial`);
-    console.log(`   POST /webhook     - Receber webhooks da Woovi`);
-    console.log(`   GET  /get-webhooks - Buscar webhooks (limpa a lista)`);
-    console.log(`   GET  /status       - Ver status do servidor`);
-    console.log(`   POST /testar       - Adicionar webhook de teste`);
+    console.log(`   GET  /                      - Página inicial`);
+    console.log(`   POST /webhook                - Receber webhooks da Woovi`);
+    console.log(`   GET  /consultar-webhooks     - 🔍 Consultar SEM remover`);
+    console.log(`   GET  /get-webhooks           - 📤 Buscar (NÃO remove por padrão)`);
+    console.log(`   GET  /get-webhooks?confirmar=true - 📤 Buscar E REMOVER`);
+    console.log(`   POST /confirmar-processamento - ✅ Confirmar processamento`);
+    console.log(`   GET  /status                  - Ver status`);
+    console.log(`   POST /testar                   - Adicionar webhook de teste`);
 });
